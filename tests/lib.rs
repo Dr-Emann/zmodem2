@@ -4,11 +4,11 @@ extern crate zmodem;
 extern crate lazy_static;
 extern crate rand;
 
-use std::fs::{remove_file, File, OpenOptions};
+use std::fs;
 use std::io::*;
 use std::process::*;
-use std::thread::{sleep, spawn};
-use std::time::*;
+use std::thread::spawn;
+use tempfile::{tempdir, NamedTempFile};
 
 struct InOut<R: Read, W: Write> {
     r: R,
@@ -50,103 +50,78 @@ lazy_static! {
 #[test]
 #[cfg(unix)]
 fn recv_from_sz() {
-    let mut f = File::create("recv_from_sz").unwrap();
+    let mut f = NamedTempFile::with_prefix("recv_from_sz").unwrap();
     f.write_all(&RND_VALUES).unwrap();
 
-    let sz = Command::new("sz")
-        .arg("recv_from_sz")
+    let mut sz = Command::new("sz")
+        .arg(f.path())
         .stdout(Stdio::piped())
         .stdin(Stdio::piped())
         .spawn()
         .expect("sz failed to run");
 
-    let child_stdin = sz.stdin.unwrap();
-    let child_stdout = sz.stdout.unwrap();
+    let child_stdin = sz.stdin.as_mut().unwrap();
+    let child_stdout = sz.stdout.as_mut().unwrap();
     let mut inout = InOut::new(child_stdout, child_stdin);
 
     let mut c = Cursor::new(Vec::new());
     zmodem::read(&mut inout, &mut (None, 0), &mut c).unwrap();
 
-    sleep(Duration::from_millis(300));
-    remove_file("recv_from_sz").unwrap();
+    let status = sz.wait().unwrap();
+    assert!(status.success());
 
-    assert_eq!(RND_VALUES.clone(), c.into_inner());
+    assert_eq!(&*RND_VALUES, c.get_ref());
 }
 
 #[test]
 #[cfg(unix)]
 fn send_to_rz() {
-    let _ = remove_file("send_to_rz");
+    const FILE_NAME: &str = "send_to_rz";
 
-    let sz = Command::new("rz")
+    let dir = tempdir().unwrap();
+    let expected_path = dir.path().join(FILE_NAME);
+
+    let mut sz = Command::new("rz")
         .stdout(Stdio::piped())
         .stdin(Stdio::piped())
+        .current_dir(dir.path())
         .spawn()
         .expect("rz failed to run");
 
-    let child_stdin = sz.stdin.unwrap();
-    let child_stdout = sz.stdout.unwrap();
+    let child_stdin = sz.stdin.as_mut().unwrap();
+    let child_stdout = sz.stdout.as_mut().unwrap();
     let mut inout = InOut::new(child_stdout, child_stdin);
 
     let len = RND_VALUES.len() as u32;
-    let copy = RND_VALUES.clone();
-    let mut cur = Cursor::new(&copy);
+    let mut cur = Cursor::new(&*RND_VALUES);
 
-    sleep(Duration::from_millis(300));
+    zmodem::write(&mut inout, &mut cur, FILE_NAME, Some(len)).unwrap();
 
-    zmodem::write(&mut inout, &mut cur, "send_to_rz", Some(len)).unwrap();
+    let status = sz.wait().unwrap();
+    assert!(status.success());
 
-    sleep(Duration::from_millis(300));
-
-    let mut f = File::open("send_to_rz").expect("open 'send_to_rz'");
-    let mut received = Vec::new();
-    f.read_to_end(&mut received).unwrap();
-    remove_file("send_to_rz").unwrap();
-
-    assert!(copy == received);
+    let received = fs::read(&expected_path).expect(&format!("open '{}'", expected_path.display()));
+    assert_eq!(&*RND_VALUES, &received);
 }
 
 #[test]
-#[cfg(unix)]
 fn lib_send_recv() {
-    let _ = remove_file("test-fifo1");
-    let _ = remove_file("test-fifo2");
-
-    let _ = Command::new("mkfifo")
-        .arg("test-fifo1")
-        .spawn()
-        .expect("mkfifo failed to run")
-        .wait();
-
-    let _ = Command::new("mkfifo")
-        .arg("test-fifo2")
-        .spawn()
-        .expect("mkfifo failed to run")
-        .wait();
-
-    sleep(Duration::from_millis(300));
+    let (in_rx, in_tx) = os_pipe::pipe().unwrap();
+    let (out_rx, out_tx) = os_pipe::pipe().unwrap();
 
     spawn(move || {
-        let outf = OpenOptions::new().write(true).open("test-fifo1").unwrap();
-        let inf = File::open("test-fifo2").unwrap();
-        let mut inout = InOut::new(inf, outf);
+        let mut inout = InOut::new(out_rx, in_tx);
 
-        let origin = RND_VALUES.clone();
-        let mut c = Cursor::new(&origin);
+        let mut c = Cursor::new(&*RND_VALUES);
 
         zmodem::write(&mut inout, &mut c, "test", None).unwrap();
     });
 
     let mut c = Cursor::new(Vec::new());
 
-    let inf = File::open("test-fifo1").unwrap();
-    let outf = OpenOptions::new().write(true).open("test-fifo2").unwrap();
-    let mut inout = InOut::new(inf, outf);
+    let mut inout = InOut::new(in_rx, out_tx);
 
     zmodem::read(&mut inout, &mut (None, 0), &mut c).unwrap();
 
-    let _ = remove_file("test-fifo1");
-    let _ = remove_file("test-fifo2");
-
-    assert_eq!(RND_VALUES.clone(), c.into_inner());
+    assert_eq!(&*RND_VALUES, c.get_ref());
 }
