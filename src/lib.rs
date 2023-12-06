@@ -6,6 +6,7 @@ use bitflags::bitflags;
 use core::convert::TryFrom;
 use crc::{Crc, CRC_16_XMODEM, CRC_32_ISO_HDLC};
 use std::fmt::{self, Display};
+use std::io;
 use std::io::{Read, Seek, SeekFrom, Write};
 use tinyvec::{array_vec, ArrayVec};
 
@@ -78,6 +79,24 @@ pub const UNZDLE_TABLE: [u8; 0x100] = [
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct InvalidData;
 
+impl From<io::Error> for InvalidData {
+    fn from(_: io::Error) -> Self {
+        InvalidData
+    }
+}
+
+impl From<binread::Error> for InvalidData {
+    fn from(_: binread::Error) -> Self {
+        InvalidData
+    }
+}
+
+impl From<hex::FromHexError> for InvalidData {
+    fn from(_: hex::FromHexError) -> Self {
+        InvalidData
+    }
+}
+
 pub trait Reader {
     fn read(&mut self, buf: &mut [u8]) -> Result<u32, InvalidData>;
     fn seek(&mut self, offset: u32) -> Result<(), InvalidData>;
@@ -111,7 +130,8 @@ where
     W: Write,
 {
     fn write(&mut self, buf: &[u8]) -> Result<(), InvalidData> {
-        self.write_all(buf).map_err(|_| InvalidData)
+        self.write_all(buf)?;
+        Ok(())
     }
 }
 
@@ -203,7 +223,7 @@ impl Header {
         match result {
             Ok(_) => {
                 ZRPOS_HEADER.with_count(0).write(port)?;
-                let reader: ZfileReader = Cursor::new(rx_buf).read_ne().map_err(|_| InvalidData)?;
+                let reader: ZfileReader = Cursor::new(rx_buf).read_ne()?;
                 if reader.file_name.len() > 255 {
                     return Err(InvalidData);
                 }
@@ -259,7 +279,8 @@ impl Header {
                 out.push(XON);
             }
         }
-        port.write_all(&out).map_err(|_| InvalidData)
+        port.write_all(&out)?;
+        Ok(())
     }
 
     pub fn read<P>(port: &mut P) -> core::result::Result<Header, InvalidData>
@@ -272,7 +293,7 @@ impl Header {
             out.push(read_byte_unescaped(port)?);
         }
         if encoding == Encoding::ZHEX {
-            hex::decode_in_slice(&mut out).map_err(|_| InvalidData)?;
+            hex::decode_in_slice(&mut out)?;
             out.truncate(out.len() / 2);
         }
         check_crc(&out[..5], &out[5..], encoding)?;
@@ -554,7 +575,7 @@ where
                 if stage == Stage::Waiting {
                     ZRQINIT_HEADER.write(port)?;
                 } else {
-                    port.write_all("OO".as_bytes()).or(Err(InvalidData))?;
+                    port.write_all("OO".as_bytes())?;
                     break;
                 }
             }
@@ -581,7 +602,7 @@ where
             Encoding::ZHEX,
             Zrinit::CANCRY | Zrinit::CANOVIO | Zrinit::CANFC32,
             0,
-        )?
+        )?;
     }
 
     loop {
