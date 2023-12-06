@@ -35,7 +35,7 @@ type RxBuffer = ArrayVec<[u8; 2048]>;
 /// original 1988 ZMODEM specification.
 type TxBuffer = ArrayVec<[u8; 1024]>;
 
-/// https://play.rust-lang.org/?version=stable&mode=debug&edition=2021&gist=20db24d9f0aaff4d13f0144416f34d46
+/// <https://play.rust-lang.org/?version=stable&mode=debug&edition=2021&gist=20db24d9f0aaff4d13f0144416f34d46>
 const ZDLE_TABLE: [u8; 0x100] = [
     0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x4d, 0x0e, 0x0f,
     0x50, 0x51, 0x12, 0x53, 0x14, 0x15, 0x16, 0x17, 0x58, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f,
@@ -55,7 +55,7 @@ const ZDLE_TABLE: [u8; 0x100] = [
     0xf0, 0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7, 0xf8, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0x6d,
 ];
 
-/// https://play.rust-lang.org/?version=stable&mode=debug&edition=2021&gist=20db24d9f0aaff4d13f0144416f34d46
+/// <https://play.rust-lang.org/?version=stable&mode=debug&edition=2021&gist=20db24d9f0aaff4d13f0144416f34d46>
 pub const UNZDLE_TABLE: [u8; 0x100] = [
     0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
     0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f,
@@ -124,6 +124,7 @@ pub struct Header {
 }
 
 impl Header {
+    #[must_use]
     pub const fn new(encoding: Encoding, kind: Frame) -> Self {
         Self {
             encoding,
@@ -132,14 +133,17 @@ impl Header {
         }
     }
 
+    #[must_use]
     pub const fn encoding(&self) -> Encoding {
         self.encoding
     }
 
+    #[must_use]
     pub const fn kind(&self) -> Frame {
         self.kind
     }
 
+    #[must_use]
     pub const fn count(&self) -> u32 {
         u32::from_le_bytes(self.flags)
     }
@@ -255,7 +259,7 @@ impl Header {
                 out.push(XON);
             }
         }
-        port.write_all(&out).or(Err(InvalidData))
+        port.write_all(&out).map_err(|_| InvalidData)
     }
 
     pub fn read<P>(port: &mut P) -> core::result::Result<Header, InvalidData>
@@ -278,6 +282,7 @@ impl Header {
         Ok(header)
     }
 
+    #[must_use]
     pub const fn with_count(&self, count: u32) -> Self {
         Header {
             encoding: self.encoding,
@@ -286,6 +291,7 @@ impl Header {
         }
     }
 
+    #[must_use]
     pub const fn with_flags(&self, flags: &[u8; 4]) -> Self {
         Header {
             encoding: self.encoding,
@@ -431,6 +437,7 @@ impl Display for Frame {
 
 bitflags! {
    /// `ZRINIT` flags
+   #[derive(Copy, Clone)]
    pub struct Zrinit: u8 {
         /// Can send and receive in full-duplex
         const CANFDX = 0x01;
@@ -539,7 +546,7 @@ where
                 if stage == Stage::Waiting {
                     ZRQINIT_HEADER.write(port)?;
                 } else {
-                    write_zdata(port, file, &frame)?;
+                    write_zdata(port, file, frame)?;
                     stage = Stage::Receiving;
                 }
             }
@@ -604,7 +611,7 @@ where
                         0,
                     )?;
                 } else if frame.count() != state.1 {
-                    ZRPOS_HEADER.with_count(state.1).write(port)?
+                    ZRPOS_HEADER.with_count(state.1).write(port)?;
                 } else {
                     read_zdata(frame.encoding() as u8, &mut state.1, port, out)?;
                 }
@@ -622,7 +629,7 @@ where
                         Encoding::ZHEX,
                         Zrinit::CANCRY | Zrinit::CANOVIO | Zrinit::CANFC32,
                         0,
-                    )?
+                    )?;
                 }
             }
             Frame::ZFIN if state.0.is_some() => {
@@ -646,7 +653,7 @@ where
 fn write_zdata<P, F>(
     port: &mut P,
     file: &mut F,
-    header: &Header,
+    header: Header,
 ) -> core::result::Result<(), InvalidData>
 where
     P: Read + Write,
@@ -763,9 +770,8 @@ where
             if let Ok(kind) = Packet::try_from(byte) {
                 buf.push(kind as u8);
                 break kind;
-            } else {
-                buf.push(UNZDLE_TABLE[byte as usize]);
             }
+            buf.push(UNZDLE_TABLE[byte as usize]);
         } else {
             buf.push(byte);
         }
@@ -804,7 +810,7 @@ where
             len = escape_mem(
                 &digest.finalize().to_le_bytes(),
                 &mut buf[0..(SUBPACKET_SIZE * 2) as usize],
-            )
+            );
         }
         Encoding::ZBIN => {
             let mut digest = CRC16.digest();
@@ -813,7 +819,7 @@ where
             len = escape_mem(
                 &digest.finalize().to_be_bytes(),
                 &mut buf[0..(SUBPACKET_SIZE * 2) as usize],
-            )
+            );
         }
         Encoding::ZHEX => {
             unimplemented!()
@@ -837,17 +843,14 @@ fn check_crc(data: &[u8], crc: &[u8], encoding: Encoding) -> core::result::Resul
 }
 
 fn make_crc(data: &[u8], out: &mut [u8], encoding: Encoding) -> usize {
-    match encoding {
-        Encoding::ZBIN32 => {
-            let crc = CRC32.checksum(data).to_le_bytes();
-            out[..4].copy_from_slice(&crc[..4]);
-            4
-        }
-        _ => {
-            let crc = CRC16.checksum(data).to_be_bytes();
-            out[..2].copy_from_slice(&crc[..2]);
-            2
-        }
+    if encoding == Encoding::ZBIN32 {
+        let crc = CRC32.checksum(data).to_le_bytes();
+        out[..4].copy_from_slice(&crc[..4]);
+        4
+    } else {
+        let crc = CRC16.checksum(data).to_be_bytes();
+        out[..2].copy_from_slice(&crc[..2]);
+        2
     }
 }
 
@@ -869,7 +872,7 @@ where
 {
     let mut buf = [0; 1];
     port.read_exact(&mut buf)
-        .map(|_| buf[0])
+        .map(|()| buf[0])
         .or(Err(InvalidData))
 }
 
