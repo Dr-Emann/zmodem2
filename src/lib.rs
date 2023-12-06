@@ -111,7 +111,7 @@ where
     W: Write,
 {
     fn write(&mut self, buf: &[u8]) -> Result<(), InvalidData> {
-        self.write_all(buf).or(Err(InvalidData))
+        self.write_all(buf).map_err(|_| InvalidData)
     }
 }
 
@@ -153,11 +153,11 @@ impl Header {
     where
         P: Write,
     {
-        let count = count.to_le_bytes();
+        let [count_b1, count_b2] = count.to_le_bytes();
         Self {
             encoding,
             kind: Frame::ZRINIT,
-            flags: [count[0], count[1], 0, zrinit.bits()],
+            flags: [count_b1, count_b2, 0, zrinit.bits()],
         }
         .write(port)
         .or(Err(InvalidData))
@@ -199,17 +199,19 @@ impl Header {
         match result {
             Ok(_) => {
                 ZRPOS_HEADER.with_count(0).write(port)?;
-                let reader: ZfileReader = Cursor::new(rx_buf).read_ne().or(Err(InvalidData))?;
+                let reader: ZfileReader = Cursor::new(rx_buf).read_ne().map_err(|_| InvalidData)?;
                 if reader.file_name.len() > 255 {
                     return Err(InvalidData);
                 }
                 let mut name = [0; 256];
-                for (i, b) in reader.file_name.as_slice().iter().enumerate() {
-                    name[i] = *b;
-                }
+                let src = reader.file_name.as_slice();
+                name[..src.len()].copy_from_slice(src);
                 Ok(Some(File { name }))
             }
-            _ => ZNAK_HEADER.write(port).and(Ok(None)),
+            _ => {
+                ZNAK_HEADER.write(port)?;
+                Ok(None)
+            },
         }
     }
 
@@ -243,7 +245,7 @@ impl Header {
         }
         let mut escaped = [0u8; HEADER_SIZE];
         // Does not corrupt `ZHEX` as the encoding byte is not escaped:
-        let escaped_len = escape_mem(&out[3..], &mut escaped[0..HEADER_SIZE]);
+        let escaped_len = escape_mem(&out[3..], &mut escaped);
         out.truncate(3);
         out.extend_from_slice(&escaped[..escaped_len]);
         if self.encoding == Encoding::ZHEX {
@@ -266,7 +268,7 @@ impl Header {
             out.push(read_byte_unescaped(port)?);
         }
         if encoding == Encoding::ZHEX {
-            hex::decode_in_slice(&mut out).or(Err(InvalidData))?;
+            hex::decode_in_slice(&mut out).map_err(|_| InvalidData)?;
             out.truncate(out.len() / 2);
         }
         check_crc(&out[..5], &out[5..], encoding)?;
@@ -327,8 +329,9 @@ impl TryFrom<u8> for Encoding {
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         ENCODINGS
             .iter()
-            .find(|e| value == **e as u8)
-            .map_or(Err(InvalidData), |e| Ok(*e))
+            .copied()
+            .find(|&e| value == e as u8)
+            .ok_or(InvalidData)
     }
 }
 
@@ -381,7 +384,7 @@ pub enum Frame {
     ZFREECNT = 17,
     /// Command from sending program
     ZCOMMAND = 18,
-    ///  Output to standard error, data follows
+    /// Output to standard error, data follows
     ZSTDERR = 19,
 }
 
@@ -414,8 +417,9 @@ impl TryFrom<u8> for Frame {
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         FRAMES
             .iter()
-            .find(|t| value == **t as u8)
-            .map_or(Err(InvalidData), |t| Ok(*t))
+            .copied()
+            .find(|&t| value == t as u8)
+            .ok_or(InvalidData)
     }
 }
 
@@ -471,8 +475,9 @@ impl TryFrom<u8> for Packet {
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         PACKETS
             .iter()
-            .find(|e| value == **e as u8)
-            .map_or(Err(InvalidData), |e| Ok(*e))
+            .copied()
+            .find(|&e| value == e as u8)
+            .ok_or(InvalidData)
     }
 }
 
@@ -751,23 +756,20 @@ fn read_subpacket<P>(
 where
     P: Read,
 {
-    let result;
-
-    loop {
+    let result = loop {
         let byte = read_byte(port)?;
         if byte == ZDLE {
             let byte = read_byte(port)?;
             if let Ok(kind) = Packet::try_from(byte) {
                 buf.push(kind as u8);
-                result = kind;
-                break;
+                break kind;
             } else {
                 buf.push(UNZDLE_TABLE[byte as usize]);
             }
         } else {
             buf.push(byte);
         }
-    }
+    };
 
     let crc_len = if encoding == Encoding::ZBIN32 { 4 } else { 2 };
     let mut crc = [0u8; 4];
