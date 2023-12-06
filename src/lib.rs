@@ -173,7 +173,7 @@ impl Header {
         encoding: Encoding,
         zrinit: Zrinit,
         count: u16,
-    ) -> core::result::Result<(), InvalidData>
+    ) -> Result<(), InvalidData>
     where
         P: Write,
     {
@@ -191,7 +191,7 @@ impl Header {
         port: &mut P,
         name: &str,
         size: u32,
-    ) -> core::result::Result<(), InvalidData>
+    ) -> Result<(), InvalidData>
     where
         P: Write,
     {
@@ -214,7 +214,7 @@ impl Header {
         write_subpacket(port, Encoding::ZBIN32, Packet::ZCRCW, &tx_buf)
     }
 
-    pub fn read_zfile<P>(&self, port: &mut P) -> core::result::Result<Option<File>, InvalidData>
+    pub fn read_zfile<P>(&self, port: &mut P) -> Result<Option<File>, InvalidData>
     where
         P: Read + Write,
     {
@@ -239,7 +239,7 @@ impl Header {
         }
     }
 
-    pub fn write<P>(&self, port: &mut P) -> core::result::Result<(), InvalidData>
+    pub fn write<P>(&self, port: &mut P) -> Result<(), InvalidData>
     where
         P: Write,
     {
@@ -283,7 +283,7 @@ impl Header {
         Ok(())
     }
 
-    pub fn read<P>(port: &mut P) -> core::result::Result<Header, InvalidData>
+    pub fn read<P>(port: &mut P) -> Result<Header, InvalidData>
     where
         P: Read,
     {
@@ -332,7 +332,7 @@ impl Header {
     }
 }
 
-impl fmt::Display for Header {
+impl Display for Header {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:8} {}", self.encoding, self.kind)
     }
@@ -534,7 +534,7 @@ pub fn write<P, F>(
     file: &mut F,
     name: &str,
     size: Option<u32>,
-) -> core::result::Result<(), InvalidData>
+) -> Result<(), InvalidData>
 where
     P: Read + Write,
     F: Reader,
@@ -590,7 +590,7 @@ pub fn read<P, F>(
     port: &mut P,
     state: &mut (Option<File>, u32),
     out: &mut F,
-) -> core::result::Result<(), InvalidData>
+) -> Result<(), InvalidData>
 where
     P: Read + Write,
     F: Writer,
@@ -675,7 +675,7 @@ fn write_zdata<P, F>(
     port: &mut P,
     file: &mut F,
     header: Header,
-) -> core::result::Result<(), InvalidData>
+) -> Result<(), InvalidData>
 where
     P: Read + Write,
     F: Reader,
@@ -721,7 +721,7 @@ fn read_zdata<P, F>(
     count: &mut u32,
     port: &mut P,
     file: &mut F,
-) -> core::result::Result<(), InvalidData>
+) -> Result<(), InvalidData>
 where
     P: Write + Read,
     F: Writer,
@@ -755,7 +755,7 @@ where
 }
 
 /// Skips (ZPAD, [ZPAD,] ZDLE) sequence.
-fn read_zpad<P>(port: &mut P) -> core::result::Result<(), InvalidData>
+fn read_zpad<P>(port: &mut P) -> Result<(), InvalidData>
 where
     P: Read,
 {
@@ -780,7 +780,7 @@ fn read_subpacket<P>(
     port: &mut P,
     encoding: Encoding,
     buf: &mut RxBuffer,
-) -> core::result::Result<Packet, InvalidData>
+) -> Result<Packet, InvalidData>
 where
     P: Read,
 {
@@ -815,7 +815,7 @@ fn write_subpacket<P>(
     encoding: Encoding,
     kind: Packet,
     data: &[u8],
-) -> core::result::Result<(), InvalidData>
+) -> Result<(), InvalidData>
 where
     P: Write,
 {
@@ -851,7 +851,7 @@ where
     Ok(())
 }
 
-fn check_crc(data: &[u8], crc: &[u8], encoding: Encoding) -> core::result::Result<(), InvalidData> {
+fn check_crc(data: &[u8], crc: &[u8], encoding: Encoding) -> Result<(), InvalidData> {
     let mut crc2 = [0u8; 4];
     let crc2_len = make_crc(data, &mut crc2, encoding);
 
@@ -875,7 +875,7 @@ fn make_crc(data: &[u8], out: &mut [u8], encoding: Encoding) -> usize {
     }
 }
 
-fn read_byte_unescaped<P>(port: &mut P) -> core::result::Result<u8, InvalidData>
+fn read_byte_unescaped<P>(port: &mut P) -> Result<u8, InvalidData>
 where
     P: Read,
 {
@@ -887,7 +887,7 @@ where
     })
 }
 
-fn read_byte<P>(port: &mut P) -> core::result::Result<u8, InvalidData>
+fn read_byte<P>(port: &mut P) -> Result<u8, InvalidData>
 where
     P: Read,
 {
