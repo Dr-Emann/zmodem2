@@ -180,8 +180,8 @@ impl Header {
         tx_buf.truncate(0);
         tx_buf.extend_from_slice(name.as_bytes());
         tx_buf.push(b'\0');
-        // FIXME: Uses heap:
-        tx_buf.extend_from_slice(size.to_string().as_bytes());
+        let mut size_str = itoa::Buffer::new();
+        tx_buf.extend_from_slice(size_str.format(size).as_bytes());
         tx_buf.push(b'\0');
 
         Self {
